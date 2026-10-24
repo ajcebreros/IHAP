@@ -57,3 +57,104 @@
     background: transparent;
   }
 }
+
+/* IHAP startup splash screen */
+.startup-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  animation: splash-exit 0.65s ease-in-out 1.55s forwards;
+}
+
+.startup-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  animation: logo-entrance 1.5s ease-out both;
+}
+
+.startup-logo {
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+  animation: logo-glow 1.6s ease-in-out infinite alternate;
+}
+
+.startup-title {
+  margin: 0;
+  color: #2563eb;
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+}
+
+.startup-subtitle {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.startup-loader {
+  width: 34px;
+  height: 34px;
+  margin-top: 20px;
+  border: 3px solid #dbeafe;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: startup-spin 0.8s linear infinite;
+}
+
+@keyframes logo-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.85);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes logo-glow {
+  from {
+    filter: drop-shadow(0 0 2px #60a5fa);
+  }
+
+  to {
+    filter: drop-shadow(0 0 12px #2563eb);
+  }
+}
+
+@keyframes startup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes splash-exit {
+  to {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .startup-brand,
+  .startup-logo,
+  .startup-loader,
+  .startup-splash {
+    animation: none;
+  }
+
+  .startup-splash {
+    display: none;
+  }
+}

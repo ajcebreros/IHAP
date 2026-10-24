@@ -23,7 +23,7 @@ import { UserUsage } from './components/UserUsage';
 import { UserSettings } from './components/UserSettings';
 import type { PageKey, User, UserRole } from './types';
 
-function App() {
+function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authenticatedUser, setAuthenticatedUser] = useState<User | null>(null);
@@ -282,4 +282,48 @@ function App() {
   );
 }
 
+
+function App() {
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setShowSplash(false);
+    }, 5000);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return (
+    <>
+      <AppContent />
+
+      {showSplash && (
+        <div
+          className="startup-splash"
+          role="status"
+          aria-label="Loading IHAP"
+        >
+          <div className="startup-brand">
+            <img
+              src="/ihap-mark.png"
+              alt=""
+              className="startup-logo"
+            />
+
+            <h1 className="startup-title">IHAP</h1>
+
+            <p className="startup-subtitle">
+              Print Management System
+            </p>
+
+            <div className="startup-loader" />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default App;
+
