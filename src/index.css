@@ -79,8 +79,8 @@
 }
 
 .startup-logo {
-  width: 100px;
-  height: 100px;
+  width: 300px;
+  height: 300px;
   object-fit: contain;
   animation: logo-glow 1.6s ease-in-out infinite alternate;
 }
@@ -124,11 +124,11 @@
 
 @keyframes logo-glow {
   from {
-    filter: drop-shadow(0 0 2px #60a5fa);
+    filter: drop-shadow(0 0 2px #84b2eb);
   }
 
   to {
-    filter: drop-shadow(0 0 12px #2563eb);
+    filter: drop-shadow(0 0 15px #2553eb);
   }
 }
 

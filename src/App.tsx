@@ -306,13 +306,11 @@ function App() {
         >
           <div className="startup-brand">
             <img
-              src="/ihap-mark.png"
+              src="/ihap-logo.png"
               alt=""
               className="startup-logo"
             />
-
-            <h1 className="startup-title">IHAP</h1>
-
+            
             <p className="startup-subtitle">
               Print Management System
             </p>
