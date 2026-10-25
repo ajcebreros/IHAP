@@ -8,12 +8,15 @@ Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the existing project `.e
 
 ## Apply migrations
 
-Apply both migrations, in timestamp order, to the same Supabase project:
+Apply the migrations, in timestamp order, to the same Supabase project:
 
 1. `supabase/migrations/20261011000000_create_profiles.sql`
 2. `supabase/migrations/20261011000001_persist_app_data.sql`
+3. `supabase/migrations/20261025000000_enable_print_job_events_admin_rls.sql`
 
 They create the profile trigger and application tables, configure RLS, and provide a protected RPC for deleting Auth users. The app expects the `profiles`, `printers`, `print_jobs`, `alerts`, and `app_settings` schema defined in these migrations. Existing demo records are not automatically migrated or seeded; new registrations create profile records, and other app data must be entered into Supabase.
+
+Captured Windows print metadata is read from the existing `public.print_job_events` table. The additional migration enables RLS and permits SELECT only to authenticated users whose trusted `auth.users.app_metadata.role` is `admin`; print metadata inserts from the server-side collector continue to use its server-only service-role credential.
 
 Accounts saved by the previous browser-local registration flow are not imported. Clear the old `ihap-registered-accounts` browser storage entry after confirming you no longer need its account details; the old implementation stored passwords in browser storage.
 

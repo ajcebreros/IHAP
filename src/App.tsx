@@ -2,26 +2,26 @@ import { useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { Search, Bell, Menu } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
-import { loadApplicationData, loadCurrentProfile, saveApplicationSettings, type ApplicationData } from './data';
-import { Sidebar } from './components/Sidebar';
-import { UserSidebar } from './components/UserSidebar';
-import { LoginScreen } from './components/LoginScreen';
-import { Dashboard } from './components/Dashboard';
-import { PrintJobsPage } from './components/PrintJobsPage';
-import { ConsumptionPage } from './components/ConsumptionPage';
-import { PrintersPage } from './components/PrintersPage';
-import { DepartmentsPage } from './components/DepartmentsPage';
-import { AlertsPage } from './components/AlertsPage';
-import { ReportsPage } from './components/ReportsPage';
-import { SettingsPage } from './components/SettingsPage';
-import { UsersPage } from './components/UsersPage';
-import { RecordConsumptionModal } from './components/RecordConsumptionModal';
-import { UserDashboard } from './components/UserDashboard';
-import { UserPrintScreen } from './components/UserPrintScreen';
-import { UserPrintJobs } from './components/UserPrintJobs';
-import { UserUsage } from './components/UserUsage';
-import { UserSettings } from './components/UserSettings';
-import type { PageKey, User, UserRole } from './types';
+import { loadApplicationData, loadCurrentProfile, saveApplicationSettings, type ApplicationData } from './data.js';
+import { Sidebar } from './components/Sidebar.js';
+import { UserSidebar } from './components/UserSidebar.js';
+import { LoginScreen } from './components/LoginScreen.js';
+import { Dashboard } from './components/Dashboard.js';
+import { PrintJobsPage } from './components/PrintJobsPage.js';
+import { ConsumptionPage } from './components/ConsumptionPage.js';
+import { PrintersPage } from './components/PrintersPage.js';
+import { DepartmentsPage } from './components/DepartmentsPage.js';
+import { AlertsPage } from './components/AlertsPage.js';
+import { ReportsPage } from './components/ReportsPage.js';
+import { SettingsPage } from './components/SettingsPage.js';
+import { UsersPage } from './components/UsersPage.js';
+import { RecordConsumptionModal } from './components/RecordConsumptionModal.js';
+import { UserDashboard } from './components/UserDashboard.js';
+import { UserPrintScreen } from './components/UserPrintScreen.js';
+import { UserPrintJobs } from './components/UserPrintJobs.js';
+import { UserUsage } from './components/UserUsage.js';
+import { UserSettings } from './components/UserSettings.js';
+import type { PageKey, User, UserRole } from './types.js';
 
 function AppContent() {
   const [session, setSession] = useState<Session | null>(null);
@@ -148,6 +148,9 @@ function AppContent() {
   }
 
   const isUser = role === 'user';
+  <div style={{ position: 'fixed', top: 5, right: 5, zIndex: 99999, background: 'yellow', color: 'black', padding: 10 }}>
+  Current role: {String(role)}
+</div>
   const pageTitles: Record<string, string> = isUser ? {
     dashboard: 'My Dashboard',
     print: 'Print',
@@ -172,7 +175,7 @@ function AppContent() {
     : applicationData.printers.filter((printer) => printer.online);
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+  <div className="flex min-h-screen bg-slate-50">
       <div className="hidden lg:block">
         {isUser ? (
           <UserSidebar active={page} onNavigate={handleNavigate} onLogout={handleLogout} user={authenticatedUser} />
@@ -304,13 +307,14 @@ function App() {
           role="status"
           aria-label="Loading IHAP"
         >
+
           <div className="startup-brand">
             <img
               src="/ihap-logo.png"
               alt=""
               className="startup-logo"
             />
-            
+
             <p className="startup-subtitle">
               Print Management System
             </p>
@@ -324,4 +328,3 @@ function App() {
 }
 
 export default App;
-

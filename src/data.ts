@@ -1,5 +1,5 @@
 import type { AuthUser } from '@supabase/supabase-js';
-import type { AlertItem, Department, PrintJob, Printer, Settings, User } from './types';
+import type { AlertItem, Department, PrintJob, Printer, Settings, User } from './types.js';
 import { supabase } from './supabaseClient.js';
 
 type ProfileRow = {

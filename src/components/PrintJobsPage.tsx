@@ -1,12 +1,71 @@
-import { useState } from 'react';
-import { Search, Filter, FileText, Brain } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Search, Filter, FileText, Brain, RefreshCw, Activity } from 'lucide-react';
 import type { PrintJob } from '../types';
+import type { Database } from '../lib/supabase.types';
+import { supabase } from '../supabaseClient.js';
 import { formatPeso } from './ui';
+
+type CapturedPrintEvent = Database['public']['Tables']['print_job_events']['Row'];
 
 export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
   const [search, setSearch] = useState('');
   const [purposeFilter, setPurposeFilter] = useState<string>('All');
   const [sortBy, setSortBy] = useState<string>('datetime');
+  const [capturedSearch, setCapturedSearch] = useState('');
+  const [capturedEvents, setCapturedEvents] = useState<CapturedPrintEvent[]>([]);
+  const [capturedLoading, setCapturedLoading] = useState(true);
+  const [capturedRefreshing, setCapturedRefreshing] = useState(false);
+  const [capturedError, setCapturedError] = useState('');
+  const capturedRequestInFlight = useRef(false);
+
+  const loadCapturedEvents = useCallback(async (refresh = false) => {
+    if (capturedRequestInFlight.current) return;
+    capturedRequestInFlight.current = true;
+
+    if (refresh) setCapturedRefreshing(true);
+    else setCapturedLoading(true);
+    setCapturedError('');
+
+    try {
+      const { data, error } = await supabase
+        .from('print_job_events')
+        .select(
+          'id, agent_id, event_record_id, source_job_id, printer_name, windows_username, machine_name, document_name, port_name, pages_printed, job_size_bytes, printed_at'
+        )
+        .order('printed_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(200);
+
+      if (error) {
+        setCapturedError(error.message);
+        return;
+      }
+
+      const uniqueEvents = new Map<number, CapturedPrintEvent>();
+      for (const event of data ?? []) {
+        if (!uniqueEvents.has(event.id)) uniqueEvents.set(event.id, event);
+      }
+      setCapturedEvents([...uniqueEvents.values()]);
+    } catch (loadError: unknown) {
+      setCapturedError(
+        loadError instanceof Error
+          ? loadError.message
+          : 'Unable to load captured print events.'
+      );
+    } finally {
+      capturedRequestInFlight.current = false;
+      setCapturedLoading(false);
+      setCapturedRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCapturedEvents();
+    const timer = window.setInterval(() => {
+      void loadCapturedEvents(true);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [loadCapturedEvents]);
 
   const filtered = printJobs
     .filter((j) => j.document.toLowerCase().includes(search.toLowerCase()) || j.user.toLowerCase().includes(search.toLowerCase()))
@@ -17,6 +76,15 @@ export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
       if (sortBy === 'confidence') return b.confidence - a.confidence;
       return b.datetime.localeCompare(a.datetime);
     });
+  const capturedTerm = capturedSearch.trim().toLowerCase();
+  const filteredCapturedEvents = capturedEvents.filter((event) =>
+    [
+      event.document_name,
+      event.printer_name,
+      event.windows_username,
+      event.machine_name,
+    ].some((value) => value?.toLowerCase().includes(capturedTerm))
+  );
 
   return (
     <div className="space-y-6">
@@ -89,6 +157,115 @@ export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
           </div>
         </div>
       </div>
+
+      <section className="space-y-4" aria-labelledby="captured-print-jobs-heading">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 id="captured-print-jobs-heading" className="text-lg font-bold text-slate-900">
+              Captured print activity
+            </h3>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Windows print metadata. Document contents are not shown.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadCapturedEvents(true)}
+            disabled={capturedRefreshing}
+            className="btn-secondary inline-flex items-center gap-2"
+          >
+            <RefreshCw size={16} className={capturedRefreshing ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+        </div>
+
+        <div className="card p-4">
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              className="input pl-9"
+              placeholder="Search captured document, printer, user, or computer..."
+              value={capturedSearch}
+              onChange={(event) => setCapturedSearch(event.target.value)}
+              aria-label="Search captured print activity"
+            />
+          </div>
+        </div>
+
+        {capturedError && (
+          <div role="alert" className="card border border-red-200 p-4 text-sm text-red-700">
+            <p className="font-semibold">Could not load captured print activity.</p>
+            <p className="mt-1">{capturedError}</p>
+            <p className="mt-2">Check the administrator SELECT policy for print_job_events in Supabase.</p>
+          </div>
+        )}
+
+        <div className="card overflow-hidden">
+          {capturedLoading ? (
+            <p role="status" className="p-10 text-center text-sm text-slate-500">
+              Loading captured print events…
+            </p>
+          ) : !capturedError && filteredCapturedEvents.length === 0 ? (
+            <div className="p-10 text-center">
+              <Activity size={24} className="mx-auto text-slate-300" />
+              <p className="mt-3 font-medium text-slate-700">
+                {capturedEvents.length ? 'No matching events' : 'No captured print events yet'}
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                New events will appear when the Windows watcher uploads them.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto scrollbar-thin">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Printed at</th>
+                    <th className="px-4 py-3 text-left font-medium">Document</th>
+                    <th className="px-4 py-3 text-left font-medium">Windows user</th>
+                    <th className="px-4 py-3 text-left font-medium">Printer</th>
+                    <th className="px-4 py-3 text-right font-medium">Pages</th>
+                    <th className="px-4 py-3 text-right font-medium">Job size</th>
+                    <th className="px-4 py-3 text-left font-medium">Computer</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredCapturedEvents.map((event) => (
+                    <tr key={event.id} className="hover:bg-slate-50/60">
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-500">
+                        {new Date(event.printed_at).toLocaleString()}
+                      </td>
+                      <td className="max-w-xs break-words px-4 py-3 font-medium text-slate-800">
+                        {event.document_name || 'Unknown document'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                        {event.windows_username || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{event.printer_name || '—'}</td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {event.pages_printed ?? '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600">
+                        {event.job_size_bytes == null
+                          ? '—'
+                          : `${(event.job_size_bytes / 1024).toFixed(1)} KB`}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                        {event.machine_name || event.agent_id || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!capturedLoading && !capturedError && (
+            <div className="border-t border-slate-100 px-4 py-3 text-sm text-slate-500">
+              Showing {filteredCapturedEvents.length} of {capturedEvents.length} loaded events. Refreshes every 15 seconds.
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

@@ -137,6 +137,48 @@ export interface Database {
         };
         Relationships: [];
       };
+      print_job_events: {
+        Row: {
+          id: number;
+          agent_id: string;
+          event_record_id: number;
+          source_job_id: number | null;
+          printer_name: string | null;
+          windows_username: string | null;
+          machine_name: string | null;
+          document_name: string | null;
+          port_name: string | null;
+          pages_printed: number | null;
+          job_size_bytes: number | null;
+          printed_at: string;
+        };
+        Insert: {
+          id?: number;
+          agent_id: string;
+          event_record_id: number;
+          source_job_id?: number | null;
+          printer_name?: string | null;
+          windows_username?: string | null;
+          machine_name?: string | null;
+          document_name?: string | null;
+          port_name?: string | null;
+          pages_printed?: number | null;
+          job_size_bytes?: number | null;
+          printed_at: string;
+        };
+        Update: {
+          source_job_id?: number | null;
+          printer_name?: string | null;
+          windows_username?: string | null;
+          machine_name?: string | null;
+          document_name?: string | null;
+          port_name?: string | null;
+          pages_printed?: number | null;
+          job_size_bytes?: number | null;
+          printed_at?: string;
+        };
+        Relationships: [];
+      };
       alerts: {
         Row: {
           id: string;
