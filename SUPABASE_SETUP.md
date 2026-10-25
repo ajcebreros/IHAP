@@ -18,6 +18,12 @@ They create the profile trigger and application tables, configure RLS, and provi
 
 Captured Windows print metadata is read from the existing `public.print_job_events` table. The additional migration enables RLS and permits SELECT only to authenticated users whose trusted `auth.users.app_metadata.role` is `admin`; print metadata inserts from the server-side collector continue to use its server-only service-role credential.
 
+## Windows print-event collector
+
+Configure `server/.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `AGENT_TOKEN`. Keep this file private and never copy the service-role key into a `VITE_` variable or frontend file. Start the API from the `server` directory with `npm start`; its health check is available at `http://localhost:3000/health`.
+
+With the collector running, launch `windows-agent/watch-print-events.ps1` from PowerShell. The watcher reads `AGENT_TOKEN` from `server/.env`, monitors new Windows PrintService Operational event ID 307 entries, posts metadata to `/api/print-job-events`, and checkpoints successfully processed records. Its first run starts at the newest existing event; make a new print after it starts to test the complete flow. Windows event messages can provide a document title rather than a verified source-file path.
+
 Accounts saved by the previous browser-local registration flow are not imported. Clear the old `ihap-registered-accounts` browser storage entry after confirming you no longer need its account details; the old implementation stored passwords in browser storage.
 
 ## Admin role

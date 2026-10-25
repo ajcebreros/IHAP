@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { Search, Bell, Menu } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
@@ -29,6 +29,8 @@ function AppContent() {
   const [authenticatedUser, setAuthenticatedUser] = useState<User | null>(null);
   const [applicationData, setApplicationData] = useState<ApplicationData | null>(null);
   const [page, setPage] = useState<PageKey>('dashboard');
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [printJobsSearch, setPrintJobsSearch] = useState('');
   const [showRecord, setShowRecord] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   const [error, setError] = useState('');
@@ -107,6 +109,14 @@ function AppContent() {
     setMobileNav(false);
   };
 
+  const handleGlobalSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const term = globalSearch.trim();
+    if (!term) return;
+    setPrintJobsSearch(term);
+    handleNavigate('print-jobs');
+  };
+
   const handleSettingsChange = async (settings: NonNullable<ApplicationData>['settings']) => {
     await saveApplicationSettings(settings);
     if (authenticatedUser) {
@@ -148,9 +158,6 @@ function AppContent() {
   }
 
   const isUser = role === 'user';
-  <div style={{ position: 'fixed', top: 5, right: 5, zIndex: 99999, background: 'yellow', color: 'black', padding: 10 }}>
-  Current role: {String(role)}
-</div>
   const pageTitles: Record<string, string> = isUser ? {
     dashboard: 'My Dashboard',
     print: 'Print',
@@ -209,10 +216,17 @@ function AppContent() {
             </div>
             <div className="flex-1" />
             {!isUser && (
-              <div className="relative hidden md:block">
+              <form onSubmit={handleGlobalSearch} role="search" className="relative hidden md:block">
                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input className="input pl-9 w-64" placeholder="Search..." />
-              </div>
+                <input
+                  className="input pl-9 w-64"
+                  placeholder="Search captured print jobs..."
+                  aria-label="Search captured print jobs"
+                  value={globalSearch}
+                  onChange={(event) => setGlobalSearch(event.target.value)}
+                />
+                <button type="submit" className="sr-only">Search</button>
+              </form>
             )}
             {!isUser && (
               <button onClick={() => handleNavigate('alerts')} className="relative p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition">
@@ -250,7 +264,9 @@ function AppContent() {
             {!isUser && page === 'dashboard' && (
               <Dashboard printers={applicationData.printers} alerts={applicationData.alerts} settings={applicationData.settings} analytics={applicationData.analytics} onNavigate={handleNavigate} onRecord={() => setShowRecord(true)} />
             )}
-            {!isUser && page === 'print-jobs' && <PrintJobsPage printJobs={applicationData.printJobs} />}
+            {!isUser && page === 'print-jobs' && (
+              <PrintJobsPage printJobs={applicationData.printJobs} searchTerm={printJobsSearch} />
+            )}
             {!isUser && page === 'consumption' && <ConsumptionPage analytics={applicationData.analytics} />}
             {!isUser && page === 'printers' && <PrintersPage printers={applicationData.printers} settings={applicationData.settings} />}
             {!isUser && page === 'users' && <UsersPage paperCostPerSheet={applicationData.settings.paperCostPerSheet} />}

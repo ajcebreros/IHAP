@@ -7,65 +7,94 @@ import { formatPeso } from './ui';
 
 type CapturedPrintEvent = Database['public']['Tables']['print_job_events']['Row'];
 
-export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
+export function PrintJobsPage({
+  printJobs,
+  searchTerm = '',
+}: {
+  printJobs: PrintJob[];
+  searchTerm?: string;
+}) {
   const [search, setSearch] = useState('');
   const [purposeFilter, setPurposeFilter] = useState<string>('All');
   const [sortBy, setSortBy] = useState<string>('datetime');
   const [capturedSearch, setCapturedSearch] = useState('');
   const [capturedEvents, setCapturedEvents] = useState<CapturedPrintEvent[]>([]);
+  const [totalCapturedCount, setTotalCapturedCount] = useState<number | null>(null);
   const [capturedLoading, setCapturedLoading] = useState(true);
   const [capturedRefreshing, setCapturedRefreshing] = useState(false);
   const [capturedError, setCapturedError] = useState('');
   const capturedRequestInFlight = useRef(false);
+  const mounted = useRef(false);
 
   const loadCapturedEvents = useCallback(async (refresh = false) => {
     if (capturedRequestInFlight.current) return;
     capturedRequestInFlight.current = true;
 
-    if (refresh) setCapturedRefreshing(true);
-    else setCapturedLoading(true);
-    setCapturedError('');
+    if (mounted.current) {
+      if (refresh) setCapturedRefreshing(true);
+      else setCapturedLoading(true);
+      setCapturedError('');
+    }
 
     try {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from('print_job_events')
         .select(
-          'id, agent_id, event_record_id, source_job_id, printer_name, windows_username, machine_name, document_name, port_name, pages_printed, job_size_bytes, printed_at'
+          'id, agent_id, event_record_id, source_job_id, printer_name, windows_username, machine_name, document_name, port_name, pages_printed, job_size_bytes, printed_at, received_at',
+          { count: 'exact' }
         )
         .order('printed_at', { ascending: false })
         .order('id', { ascending: false })
         .limit(200);
 
       if (error) {
-        setCapturedError(error.message);
+        if (mounted.current) setCapturedError(error.message);
         return;
       }
 
-      const uniqueEvents = new Map<number, CapturedPrintEvent>();
+      const uniqueEvents = new Map<string, CapturedPrintEvent>();
       for (const event of data ?? []) {
-        if (!uniqueEvents.has(event.id)) uniqueEvents.set(event.id, event);
+        const eventKey = JSON.stringify([event.agent_id, event.event_record_id]);
+        if (!uniqueEvents.has(eventKey)) uniqueEvents.set(eventKey, event);
       }
-      setCapturedEvents([...uniqueEvents.values()]);
+      if (mounted.current) {
+        setCapturedEvents([...uniqueEvents.values()]);
+        setTotalCapturedCount(count);
+      }
     } catch (loadError: unknown) {
-      setCapturedError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'Unable to load captured print events.'
-      );
+      if (mounted.current) {
+        setCapturedError(
+          loadError instanceof Error
+            ? loadError.message
+            : 'Unable to load captured print events.'
+        );
+      }
     } finally {
       capturedRequestInFlight.current = false;
-      setCapturedLoading(false);
-      setCapturedRefreshing(false);
+      if (mounted.current) {
+        setCapturedLoading(false);
+        setCapturedRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    mounted.current = true;
     void loadCapturedEvents();
     const timer = window.setInterval(() => {
       void loadCapturedEvents(true);
     }, 15000);
-    return () => window.clearInterval(timer);
+    return () => {
+      mounted.current = false;
+      window.clearInterval(timer);
+    };
   }, [loadCapturedEvents]);
+
+  useEffect(() => {
+    if (!searchTerm) return;
+    setSearch(searchTerm);
+    setCapturedSearch(searchTerm);
+  }, [searchTerm]);
 
   const filtered = printJobs
     .filter((j) => j.document.toLowerCase().includes(search.toLowerCase()) || j.user.toLowerCase().includes(search.toLowerCase()))
@@ -85,6 +114,25 @@ export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
       event.machine_name,
     ].some((value) => value?.toLowerCase().includes(capturedTerm))
   );
+  const today = new Date();
+  const todaysEvents = capturedEvents.filter((event) => {
+    const printedAt = new Date(event.printed_at);
+    return !Number.isNaN(printedAt.getTime())
+      && printedAt.getFullYear() === today.getFullYear()
+      && printedAt.getMonth() === today.getMonth()
+      && printedAt.getDate() === today.getDate();
+  });
+  const reportedPages = capturedEvents.reduce(
+    (total, event) => total + (event.pages_printed ?? 0),
+    0
+  );
+  const printerCounts = new Map<string, number>();
+  for (const event of capturedEvents) {
+    const printerName = event.printer_name?.trim();
+    if (printerName) printerCounts.set(printerName, (printerCounts.get(printerName) ?? 0) + 1);
+  }
+  const mostUsedPrinter = [...printerCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? '—';
 
   return (
     <div className="space-y-6">
@@ -165,19 +213,32 @@ export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
               Captured print activity
             </h3>
             <p className="mt-0.5 text-sm text-slate-500">
-              Windows print metadata. Document contents are not shown.
+              Document name is the title reported by Windows and is not verified as a filesystem path. Document contents are not collected.
             </p>
           </div>
           <button
             type="button"
             onClick={() => void loadCapturedEvents(true)}
-            disabled={capturedRefreshing}
+            disabled={capturedRefreshing || capturedLoading}
             className="btn-secondary inline-flex items-center gap-2"
           >
             <RefreshCw size={16} className={capturedRefreshing ? 'animate-spin' : ''} />
             Refresh
           </button>
         </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <CapturedStat
+            label="Total captured print jobs"
+            value={totalCapturedCount?.toLocaleString() ?? '—'}
+          />
+          <CapturedStat label="Jobs printed today" value={todaysEvents.length.toLocaleString()} />
+          <CapturedStat label="Reported pages" value={reportedPages.toLocaleString()} />
+          <CapturedStat label="Most-used printer" value={mostUsedPrinter} />
+        </div>
+        <p className="text-xs text-slate-500">
+          The total is an exact count visible under your admin access. Today, pages, and most-used printer use the {capturedEvents.length} most recent loaded records (up to 200).
+        </p>
 
         <div className="card p-4">
           <div className="relative">
@@ -196,7 +257,15 @@ export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
           <div role="alert" className="card border border-red-200 p-4 text-sm text-red-700">
             <p className="font-semibold">Could not load captured print activity.</p>
             <p className="mt-1">{capturedError}</p>
-            <p className="mt-2">Check the administrator SELECT policy for print_job_events in Supabase.</p>
+            <p className="mt-2">Check the table columns and administrator SELECT policy for print_job_events in Supabase.</p>
+            <button
+              type="button"
+              onClick={() => void loadCapturedEvents(true)}
+              disabled={capturedRefreshing || capturedLoading}
+              className="btn-secondary mt-3"
+            >
+              Retry
+            </button>
           </div>
         )}
 
@@ -221,22 +290,27 @@ export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
                 <thead>
                   <tr className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                     <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Printed at</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-left font-medium">Received at</th>
                     <th className="px-4 py-3 text-left font-medium">Document</th>
                     <th className="px-4 py-3 text-left font-medium">Windows user</th>
                     <th className="px-4 py-3 text-left font-medium">Printer</th>
                     <th className="px-4 py-3 text-right font-medium">Pages</th>
                     <th className="px-4 py-3 text-right font-medium">Job size</th>
                     <th className="px-4 py-3 text-left font-medium">Computer</th>
+                    <th className="px-4 py-3 text-right font-medium">Event record ID</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredCapturedEvents.map((event) => (
                     <tr key={event.id} className="hover:bg-slate-50/60">
                       <td className="whitespace-nowrap px-4 py-3 text-slate-500">
-                        {new Date(event.printed_at).toLocaleString()}
+                        {formatTimestamp(event.printed_at)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-500">
+                        {formatTimestamp(event.received_at)}
                       </td>
                       <td className="max-w-xs break-words px-4 py-3 font-medium text-slate-800">
-                        {event.document_name || 'Unknown document'}
+                        {event.document_name?.trim() || '—'}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                         {event.windows_username || '—'}
@@ -246,12 +320,13 @@ export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
                         {event.pages_printed ?? '—'}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600">
-                        {event.job_size_bytes == null
-                          ? '—'
-                          : `${(event.job_size_bytes / 1024).toFixed(1)} KB`}
+                        {formatJobSize(event.job_size_bytes)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                        {event.machine_name || event.agent_id || '—'}
+                        {event.machine_name?.trim() || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {event.event_record_id ?? '—'}
                       </td>
                     </tr>
                   ))}
@@ -268,6 +343,28 @@ export function PrintJobsPage({ printJobs }: { printJobs: PrintJob[] }) {
       </section>
     </div>
   );
+}
+
+function CapturedStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="card min-w-0 p-4">
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-xl font-semibold text-slate-900" title={value}>{value}</p>
+    </div>
+  );
+}
+
+function formatTimestamp(value: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+}
+
+function formatJobSize(bytes: number | null) {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function JobRow({ job }: { job: PrintJob }) {

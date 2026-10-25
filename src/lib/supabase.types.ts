@@ -151,6 +151,7 @@ export interface Database {
           pages_printed: number | null;
           job_size_bytes: number | null;
           printed_at: string;
+          received_at: string | null;
         };
         Insert: {
           id?: number;
@@ -165,6 +166,7 @@ export interface Database {
           pages_printed?: number | null;
           job_size_bytes?: number | null;
           printed_at: string;
+          received_at?: string | null;
         };
         Update: {
           source_job_id?: number | null;
@@ -176,6 +178,7 @@ export interface Database {
           pages_printed?: number | null;
           job_size_bytes?: number | null;
           printed_at?: string;
+          received_at?: string | null;
         };
         Relationships: [];
       };

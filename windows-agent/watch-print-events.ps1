@@ -59,7 +59,7 @@ while ($true) {
         $message = $ev.Message
 
         # Parse the standard English Windows Event 307 message.
-        $pattern = 'Document\s+(?<job>\d+),\s*(?<doc>.*?)\s+owned by\s+(?<user>.*?)\s+on\s+(?<machine>.*?)\s+was printed on\s+(?<printer>.*?)\s+through port\s+(?<port>.*?)\.\s+Size in bytes:\s*(?<size>\d+)\.\s+Pages printed:\s*(?<pages>\d+)'
+        $pattern = '(?is)Document\s+(?<job>\d+),\s*(?<doc>.*?)\s+owned by\s+(?<user>.*?)\s+on\s+(?<machine>.*?)\s+was printed on\s+(?<printer>.*?)\s+through port\s+(?<port>.*?)\.\s+Size in bytes:\s*(?<size>\d+)\s*[.;]\s*Pages printed:\s*(?<pages>\d+)'
         $match = [regex]::Match($message, $pattern)
 
         if (!$match.Success) {
