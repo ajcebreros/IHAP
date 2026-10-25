@@ -280,7 +280,13 @@ function AppContent() {
                 alerts: current.alerts.map((alert) => alert.id === id ? { ...alert, acknowledged: true } : alert),
               } : current);
             }} />}
-            {!isUser && page === 'reports' && <ReportsPage />}
+            {!isUser && page === 'reports' && (
+              <ReportsPage
+                analytics={applicationData.analytics}
+                printers={applicationData.printers}
+                printJobs={applicationData.printJobs}
+              />
+            )}
             {!isUser && page === 'settings' && (
               <SettingsPage settings={applicationData.settings} onChange={handleSettingsChange} printers={applicationData.printers} />
             )}

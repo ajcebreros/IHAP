@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Printer,
   FileText,
   BarChart3,
   Settings,
@@ -17,6 +18,7 @@ interface UserSidebarProps {
 
 const navItems: { key: PageKey; label: string; icon: typeof LayoutDashboard }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { key: 'print', label: 'Print', icon: Printer },
   { key: 'print-jobs', label: 'My Print Jobs', icon: FileText },
   { key: 'consumption', label: 'My Usage', icon: BarChart3 },
   { key: 'settings', label: 'Settings', icon: Settings },
@@ -35,15 +37,17 @@ export function UserSidebar({ active, onNavigate, onLogout, user }: UserSidebarP
           const Icon = item.icon;
           return (
             <button
+              type="button"
               key={item.key}
               onClick={() => onNavigate(item.key)}
+              aria-current={isActive ? 'page' : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group ${
                 isActive
                   ? 'bg-eco-50 text-eco-700'
                   : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-eco-500 focus-visible:ring-offset-2`}
             >
-              <Icon size={18} className={isActive ? 'text-eco-600' : 'text-slate-400 group-hover:text-slate-600'} />
+              <Icon aria-hidden="true" size={18} className={isActive ? 'text-eco-600' : 'text-slate-400 group-hover:text-slate-600'} />
               <span className="flex-1 text-left">{item.label}</span>
               {isActive && <ChevronRight size={14} className="text-eco-400" />}
             </button>
@@ -52,7 +56,7 @@ export function UserSidebar({ active, onNavigate, onLogout, user }: UserSidebarP
       </nav>
 
       <div className="p-3 border-t border-slate-100">
-        <button onClick={onLogout} className="w-full flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-slate-50 transition group">
+        <button type="button" onClick={onLogout} className="w-full flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-slate-50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-eco-500 focus-visible:ring-offset-2">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-eco-500 to-eco-700 flex items-center justify-center text-white text-sm font-semibold">
             {user.avatar}
           </div>
@@ -60,7 +64,7 @@ export function UserSidebar({ active, onNavigate, onLogout, user }: UserSidebarP
             <p className="text-sm font-medium text-slate-700 truncate">{user.name}</p>
             <p className="text-xs text-slate-400 truncate">{user.email}</p>
           </div>
-          <LogOut size={16} className="text-slate-300 group-hover:text-red-400 transition" />
+          <LogOut aria-hidden="true" size={16} className="text-slate-300 group-hover:text-red-400 transition" />
         </button>
       </div>
     </aside>

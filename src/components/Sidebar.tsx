@@ -47,15 +47,17 @@ export function Sidebar({ active, onNavigate, alertCount, onLogout, user }: Side
           const Icon = item.icon;
           return (
             <button
+              type="button"
               key={item.key}
               onClick={() => onNavigate(item.key)}
+              aria-current={isActive ? 'page' : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 group ${
                 isActive
                   ? 'bg-brand-50 text-brand-700'
                   : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
+              } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2`}
             >
-              <Icon size={18} className={isActive ? 'text-brand-600' : 'text-slate-400 group-hover:text-slate-600'} />
+              <Icon aria-hidden="true" size={18} className={isActive ? 'text-brand-600' : 'text-slate-400 group-hover:text-slate-600'} />
               <span className="flex-1 text-left">{item.label}</span>
               {item.key === 'alerts' && alertCount > 0 && (
                 <span className="px-1.5 py-0.5 text-xs font-semibold rounded-md bg-red-100 text-red-600">{alertCount}</span>
@@ -67,7 +69,7 @@ export function Sidebar({ active, onNavigate, alertCount, onLogout, user }: Side
       </nav>
 
       <div className="p-3 border-t border-slate-100">
-        <button onClick={onLogout} className="w-full flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-slate-50 transition group">
+        <button type="button" onClick={onLogout} className="w-full flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-slate-50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center text-white text-sm font-semibold">
             {user.avatar}
           </div>
@@ -75,7 +77,7 @@ export function Sidebar({ active, onNavigate, alertCount, onLogout, user }: Side
             <p className="text-sm font-medium text-slate-700 truncate">{user.name}</p>
             <p className="text-xs text-slate-400 truncate">{user.email}</p>
           </div>
-          <LogOut size={16} className="text-slate-300 group-hover:text-red-400 transition" />
+          <LogOut aria-hidden="true" size={16} className="text-slate-300 group-hover:text-red-400 transition" />
         </button>
       </div>
     </aside>

@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FileStack,
   CalendarDays,
@@ -12,11 +13,14 @@ import {
   Building2,
   ChevronRight,
   Plus,
+  RefreshCw,
 } from 'lucide-react';
 import type { Printer, AlertItem, Settings, PageKey } from '../types';
 import { LineChart, ProgressRing, DonutChart } from './Charts';
 import { getPaperStatus, statusBg, formatPeso, formatNumber } from './ui';
-import type { ConsumptionAnalytics } from '../data';
+import type { ChartDatum, ConsumptionAnalytics } from '../data';
+import type { Database } from '../lib/supabase.types';
+import { supabase } from '../supabaseClient.js';
 
 interface DashboardProps {
   printers: Printer[];
@@ -28,10 +32,96 @@ interface DashboardProps {
 }
 
 export function Dashboard({ printers, alerts, settings, analytics, onNavigate, onRecord }: DashboardProps) {
+  const [trendRange, setTrendRange] = useState<'today' | 'week' | 'month' | 'year'>('week');
+  const [capturedEvents, setCapturedEvents] = useState<CapturedDashboardEvent[]>([]);
+  const [capturedLoading, setCapturedLoading] = useState(true);
+  const [capturedRefreshing, setCapturedRefreshing] = useState(false);
+  const [capturedError, setCapturedError] = useState('');
+  const [capturedLoaded, setCapturedLoaded] = useState(false);
+  const capturedRequestInFlight = useRef(false);
+  const mounted = useRef(false);
+
+  const loadCapturedEvents = useCallback(async (manualRefresh = false) => {
+    if (capturedRequestInFlight.current) return;
+    capturedRequestInFlight.current = true;
+    if (mounted.current) {
+      setCapturedError('');
+      if (manualRefresh) setCapturedRefreshing(true);
+      else setCapturedLoading(true);
+    }
+
+    try {
+      const loaded: CapturedDashboardEvent[] = [];
+      const pageSize = 1000;
+      let offset = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from('print_job_events')
+          .select('id, agent_id, event_record_id, pages_printed, printed_at')
+          .order('id', { ascending: true })
+          .range(offset, offset + pageSize - 1);
+        if (error) throw new Error(error.message);
+        const rows = data ?? [];
+        loaded.push(...rows);
+        if (rows.length < pageSize) break;
+        offset += pageSize;
+      }
+
+      const uniqueEvents = new Map<string, CapturedDashboardEvent>();
+      for (const event of loaded) {
+        const key = JSON.stringify([event.agent_id, event.event_record_id]);
+        if (!uniqueEvents.has(key)) uniqueEvents.set(key, event);
+      }
+      if (mounted.current) {
+        setCapturedEvents([...uniqueEvents.values()]);
+        setCapturedLoaded(true);
+      }
+    } catch (loadError: unknown) {
+      if (mounted.current) {
+        setCapturedError(
+          loadError instanceof Error ? loadError.message : 'Unable to load captured print activity.'
+        );
+      }
+    } finally {
+      capturedRequestInFlight.current = false;
+      if (mounted.current) {
+        setCapturedLoading(false);
+        setCapturedRefreshing(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    void loadCapturedEvents();
+    const timer = window.setInterval(() => void loadCapturedEvents(true), 15000);
+    return () => {
+      mounted.current = false;
+      window.clearInterval(timer);
+    };
+  }, [loadCapturedEvents]);
+
+  const dashboardAnalytics = includeCapturedConsumption(
+    analytics,
+    capturedEvents,
+    settings.paperCostPerSheet,
+  );
   const highlightPrinter = printers[0];
   const officePercent = analytics.totalPaperConsumed
     ? Math.round((analytics.byPurpose.find((item) => item.label === 'Office Use')?.value ?? 0) / analytics.totalPaperConsumed * 100)
     : 0;
+  const trendData = {
+    today: dashboardAnalytics.today,
+    week: dashboardAnalytics.daily,
+    month: dashboardAnalytics.monthly,
+    year: dashboardAnalytics.yearly,
+  }[trendRange];
+  const trendDescription = {
+    today: 'Paper sheets consumed today',
+    week: 'Daily paper sheets consumed over the last 7 days',
+    month: 'Paper sheets consumed per month over the last 12 months',
+    year: 'Paper sheets consumed per year over the last 5 years',
+  }[trendRange];
 
   return (
     <div className="space-y-6">
@@ -40,31 +130,31 @@ export function Dashboard({ printers, alerts, settings, analytics, onNavigate, o
         <MetricCard
           icon={FileStack}
           label="Total Paper Consumed"
-          value={`${formatNumber(analytics.totalPaperConsumed)} sheets`}
-          trend="All recorded print jobs"
+          value={`${formatNumber(dashboardAnalytics.totalPaperConsumed)} sheets`}
+          trend={capturedEvents.length ? 'Includes simplex-estimated captured jobs' : 'Recorded print jobs'}
           color="brand"
         />
         <MetricCard
           icon={CalendarDays}
           label="Monthly Usage"
-          value={`${formatNumber(analytics.monthlyUsage)} sheets`}
-          trend="Recorded this month"
+          value={`${formatNumber(dashboardAnalytics.monthlyUsage)} sheets`}
+          trend={capturedEvents.length ? 'Includes captured pages, estimated as sheets' : 'Recorded this month'}
           color="brand"
           sparkline
-          sparklineData={analytics.daily}
+          sparklineData={dashboardAnalytics.daily}
         />
         <MetricCard
           icon={TrendingUp}
           label="Avg Daily Consumption"
-          value={`${analytics.avgDailyConsumption} sheets/day`}
-          trend="Average over the last 7 days"
+          value={`${dashboardAnalytics.avgDailyConsumption} sheets/day`}
+          trend={capturedEvents.length ? '7-day avg; captured pages estimated as sheets' : 'Average over the last 7 days'}
           color="slate"
         />
         <MetricCard
           icon={Wallet}
           label="Estimated Cost"
-          value={formatPeso(analytics.estimatedCost)}
-          trend={`₱${settings.paperCostPerSheet.toFixed(2)} / sheet`}
+          value={formatPeso(dashboardAnalytics.estimatedCost)}
+          trend={`₱${settings.paperCostPerSheet.toFixed(2)} / sheet${capturedEvents.length ? ' · captured cost assumes simplex' : ''}`}
           trendUp
           color="brand"
         />
@@ -84,22 +174,71 @@ export function Dashboard({ printers, alerts, settings, analytics, onNavigate, o
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-semibold text-slate-900">Paper Consumption Trend</h3>
-              <p className="text-sm text-slate-500">Daily sheets consumed this week</p>
+              <p className="text-sm text-slate-500">{trendDescription}{capturedEvents.length ? ' · captured pages estimated as sheets' : ''}</p>
             </div>
-            <div className="flex gap-1.5">
-              {['Today', 'Week', 'Month', 'Year'].map((t, i) => (
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {capturedLoaded && (
                 <button
-                  key={t}
+                  type="button"
+                  onClick={() => void loadCapturedEvents(true)}
+                  disabled={capturedLoading || capturedRefreshing}
+                  className="btn-ghost inline-flex items-center gap-1.5 text-xs"
+                  aria-label="Refresh captured print activity"
+                >
+                  <RefreshCw size={14} className={capturedRefreshing ? 'animate-spin' : ''} />
+                  Refresh
+                </button>
+              )}
+              {([
+                ['today', 'Today'],
+                ['week', 'Week'],
+                ['month', 'Month'],
+                ['year', 'Year'],
+              ] as const).map(([range, label]) => (
+                <button
+                  key={range}
+                  type="button"
+                  aria-pressed={trendRange === range}
+                  onClick={() => setTrendRange(range)}
                   className={`px-3 py-1.5 text-xs font-medium rounded-lg transition ${
-                    i === 1 ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:bg-slate-100'
+                    trendRange === range ? 'bg-brand-50 text-brand-700' : 'text-slate-500 hover:bg-slate-100'
                   }`}
                 >
-                  {t}
+                  {label}
                 </button>
               ))}
             </div>
           </div>
-          <LineChart data={analytics.daily} height={240} color="#2563eb" formatValue={(v) => `${v}`} />
+          <LineChart data={trendData} height={240} color="#2563eb" formatValue={(v) => `${v}`} />
+          <div aria-live="polite" className="mt-2 text-xs">
+            {capturedLoading && (
+              <p role="status" className="text-slate-500">Loading captured print consumption…</p>
+            )}
+            {!capturedLoading && !capturedError && capturedEvents.length === 0 && (
+              <p className="text-slate-500">No captured print events yet. Existing app-recorded consumption is shown.</p>
+            )}
+            {capturedError && (
+              <p role="alert" className="text-red-600">
+                Captured activity could not be loaded; dashboard totals exclude captured jobs. {capturedError}
+                {' '}
+                <button
+                  type="button"
+                  className="underline"
+                  onClick={() => void loadCapturedEvents(true)}
+                  disabled={capturedRefreshing}
+                >
+                  Retry
+                </button>
+              </p>
+            )}
+            {capturedEvents.length > 0 && (
+              <p className="text-slate-500">
+                Captured printed pages are estimated as sheets using one page per sheet. Windows events do not record duplex mode.
+                Purpose, department, and sustainability figures remain based on app-recorded jobs because captured events lack those details.
+                Captured records are added to app-recorded totals; there is no shared job ID to reliably deduplicate across both sources.
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Office vs Personal */}
@@ -245,6 +384,86 @@ export function Dashboard({ printers, alerts, settings, analytics, onNavigate, o
       </div>
     </div>
   );
+}
+
+type CapturedDashboardEvent = Pick<
+  Database['public']['Tables']['print_job_events']['Row'],
+  'id' | 'agent_id' | 'event_record_id' | 'pages_printed' | 'printed_at'
+>;
+
+type DashboardConsumptionAnalytics = ConsumptionAnalytics & { today: ChartDatum[] };
+
+function includeCapturedConsumption(
+  analytics: ConsumptionAnalytics,
+  events: CapturedDashboardEvent[],
+  paperCostPerSheet: number,
+): DashboardConsumptionAnalytics {
+  const validEvents = events.filter((event) =>
+    Number.isSafeInteger(event.pages_printed)
+      && (event.pages_printed ?? -1) >= 0
+      && !Number.isNaN(new Date(event.printed_at).getTime())
+  );
+  const capturedPages = validEvents.reduce((total, event) => total + (event.pages_printed ?? 0), 0);
+  const now = new Date();
+  const currentMonthPages = validEvents.reduce((total, event) => {
+    const printedAt = new Date(event.printed_at);
+    return printedAt.getFullYear() === now.getFullYear() && printedAt.getMonth() === now.getMonth()
+      ? total + (event.pages_printed ?? 0)
+      : total;
+  }, 0);
+
+  const daily = analytics.daily.map((item, index) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (analytics.daily.length - index - 1));
+    const dateKey = localDateKey(date);
+    const pages = validEvents.reduce(
+      (total, event) => total + (localDateKey(new Date(event.printed_at)) === dateKey ? event.pages_printed ?? 0 : 0),
+      0,
+    );
+    return { ...item, value: item.value + pages };
+  });
+
+  const monthly = analytics.monthly.map((item, index) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - (analytics.monthly.length - index - 1), 1);
+    const pages = validEvents.reduce((total, event) => {
+      const printedAt = new Date(event.printed_at);
+      return printedAt.getFullYear() === date.getFullYear() && printedAt.getMonth() === date.getMonth()
+        ? total + (event.pages_printed ?? 0)
+        : total;
+    }, 0);
+    return { ...item, value: item.value + pages };
+  });
+
+  const yearly = analytics.yearly.map((item) => {
+    const year = Number(item.label);
+    const pages = validEvents.reduce(
+      (total, event) => total + (new Date(event.printed_at).getFullYear() === year ? event.pages_printed ?? 0 : 0),
+      0,
+    );
+    return { ...item, value: item.value + pages };
+  });
+  const capturedPaperCost = capturedPages * paperCostPerSheet;
+
+  return {
+    ...analytics,
+    today: daily.slice(-1),
+    daily,
+    monthly,
+    yearly,
+    totalPaperConsumed: analytics.totalPaperConsumed + capturedPages,
+    monthlyUsage: analytics.monthlyUsage + currentMonthPages,
+    avgDailyConsumption: Math.round(daily.reduce((total, item) => total + item.value, 0) / 7),
+    estimatedCost: analytics.estimatedCost + capturedPaperCost,
+  };
+}
+
+function localDateKey(date: Date) {
+  if (Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function MetricCard({ icon: Icon, label, value, trend, trendUp, color, customValue, sparkline, sparklineData = [] }: {
