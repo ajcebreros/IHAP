@@ -60,6 +60,111 @@ app.get("/health", (_req, res) => {
 });
 
 app.post(
+  "/api/print-job-events",
+  authenticateAgent,
+  async (req, res) => {
+    try {
+      const body = req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return res.status(400).json({
+          ok: false,
+          error: "A JSON object is required"
+        });
+      }
+
+      const agentId = optionalString(body.agent_id, 100);
+      const recordId = Number(body.event_record_id);
+      const jobId = body.source_job_id == null || body.source_job_id === ""
+        ? null
+        : Number(body.source_job_id);
+      const pages = body.pages_printed == null || body.pages_printed === ""
+        ? null
+        : Number(body.pages_printed);
+      const size = body.job_size_bytes == null || body.job_size_bytes === ""
+        ? null
+        : Number(body.job_size_bytes);
+      const printedAt = optionalString(body.printed_at, 80);
+      const optionalTextFields = [
+        "printer_name",
+        "windows_username",
+        "machine_name",
+        "document_name",
+        "port_name"
+      ];
+
+      if (
+        optionalTextFields.some((field) =>
+          body[field] != null && typeof body[field] !== "string"
+        )
+      ) {
+        return res.status(400).json({
+          ok: false,
+          error: "Invalid text metadata"
+        });
+      }
+
+      if (
+        !agentId ||
+        !Number.isSafeInteger(recordId) ||
+        recordId < 1 ||
+        !printedAt ||
+        Number.isNaN(Date.parse(printedAt))
+      ) {
+        return res.status(400).json({
+          ok: false,
+          error: "Valid agent_id, event_record_id and printed_at are required"
+        });
+      }
+
+      if (
+        (jobId !== null && (!Number.isSafeInteger(jobId) || jobId < 0)) ||
+        (pages !== null && (!Number.isSafeInteger(pages) || pages < 0)) ||
+        (size !== null && (!Number.isSafeInteger(size) || size < 0))
+      ) {
+        return res.status(400).json({
+          ok: false,
+          error: "Invalid numeric metadata"
+        });
+      }
+
+      const record = {
+        agent_id: agentId,
+        event_record_id: recordId,
+        source_job_id: jobId,
+        printer_name: optionalString(body.printer_name, 255),
+        windows_username: optionalString(body.windows_username, 255),
+        machine_name: optionalString(body.machine_name, 255),
+        document_name: optionalString(body.document_name, 500),
+        port_name: optionalString(body.port_name, 255),
+        pages_printed: pages,
+        job_size_bytes: size,
+        printed_at: new Date(printedAt).toISOString()
+      };
+
+      const { error } = await supabase
+        .from("print_job_events")
+        .upsert(record, { onConflict: "agent_id,event_record_id" });
+
+      if (error) {
+        console.error("Print event upsert failed:", error.message);
+        return res.status(500).json({
+          ok: false,
+          error: "Could not save print event"
+        });
+      }
+
+      return res.status(200).json({ ok: true });
+    } catch (error) {
+      console.error("Print event processing failed:", error.message);
+      return res.status(500).json({
+        ok: false,
+        error: "Print event processing failed"
+      });
+    }
+  }
+);
+
+app.post(
   "/api/print-jobs",
   authenticateAgent,
   upload.single("document"),
@@ -183,100 +288,6 @@ app.post(
   }
 );
 
-
-app.post(
-  "/api/print-job-events",
-  authenticateAgent,
-  async (req, res) => {
-    try {
-      const agentId = optionalString(req.body.agent_id, 100);
-      const rawRecordId = req.body.event_record_id;
-      const recordId = Number(rawRecordId);
-      const rawJobId = req.body.source_job_id;
-      const jobId = rawJobId == null || rawJobId === ""
-        ? null
-        : Number(rawJobId);
-      const rawPages = req.body.pages_printed;
-      const pages = rawPages == null || rawPages === ""
-        ? null
-        : Number(rawPages);
-      const rawSize = req.body.job_size_bytes;
-      const size = rawSize == null || rawSize === ""
-        ? null
-        : Number(rawSize);
-      const printedAt = optionalString(req.body.printed_at, 80);
-
-      if (
-        !agentId ||
-        !Number.isSafeInteger(recordId) ||
-        recordId < 1 ||
-        !printedAt ||
-        Number.isNaN(Date.parse(printedAt))
-      ) {
-        return res.status(400).json({
-          ok: false,
-          error: "Valid agent_id, event_record_id and printed_at are required"
-        });
-      }
-
-      if (
-        (jobId !== null && (!Number.isSafeInteger(jobId) || jobId < 0)) ||
-        (pages !== null && (!Number.isSafeInteger(pages) || pages < 0)) ||
-        (size !== null && (!Number.isSafeInteger(size) || size < 0))
-      ) {
-        return res.status(400).json({
-          ok: false,
-          error: "Invalid numeric metadata"
-        });
-      }
-
-      const record = {
-        agent_id: agentId,
-        event_record_id: recordId,
-        source_job_id: jobId,
-        printer_name: optionalString(req.body.printer_name, 255),
-        windows_username: optionalString(req.body.windows_username, 255),
-        machine_name: optionalString(req.body.machine_name, 255),
-        document_name: optionalString(req.body.document_name, 500),
-        port_name: optionalString(req.body.port_name, 255),
-        pages_printed: pages,
-        job_size_bytes: size,
-        printed_at: new Date(printedAt).toISOString()
-      };
-
-      const { error } = await supabase
-        .from("print_job_events")
-        .insert(record);
-
-      if (error?.code === "23505") {
-        return res.status(200).json({
-          ok: true,
-          duplicate: true
-        });
-      }
-
-      if (error) {
-        console.error("Print event insert failed:", error.message);
-        return res.status(500).json({
-          ok: false,
-          error: "Could not save print event"
-        });
-      }
-
-     
-      return res.status(201).json({ ok: true });
-    } catch (error) {
-      console.error("Print event processing failed:", error.message);
-      return res.status(500).json({
-        ok: false,
-        error: "Print event processing failed"
-      });
-    }
-  }
-);
-
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`IHAP print collector listening on port ${PORT}`);
 });
-
-
