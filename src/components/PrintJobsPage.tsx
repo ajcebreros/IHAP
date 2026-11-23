@@ -296,6 +296,7 @@ export function PrintJobsPage({
                     <th className="px-4 py-3 text-left font-medium">Printer</th>
                     <th className="px-4 py-3 text-right font-medium">Pages</th>
                     <th className="px-4 py-3 text-right font-medium">Job size</th>
+                    <th className="px-4 py-3 text-left font-medium">Agent / Department ID</th>
                     <th className="px-4 py-3 text-left font-medium">Computer</th>
                     <th className="px-4 py-3 text-right font-medium">Event record ID</th>
                   </tr>
@@ -321,6 +322,9 @@ export function PrintJobsPage({
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600">
                         {formatJobSize(event.job_size_bytes)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-600">
+                        {formatDepartment(event.agent_id)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600">
                         {event.machine_name?.trim() || '—'}
@@ -354,6 +358,15 @@ function CapturedStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function formatDepartment(agentId: string | null) {
+  const departments: Record<string, string> = {
+    'DEPARTMENT-1-LAPTOP-01': 'Department 1',
+    'DEPARTMENT-2-LAPTOP-01': 'Department 2',
+    'DEPARTMENT-3-LAPTOP-01': 'Department 3',
+  };
+
+  return agentId ? departments[agentId] ?? agentId : '—';
+}
 function formatTimestamp(value: string | null) {
   if (!value) return '—';
   const date = new Date(value);

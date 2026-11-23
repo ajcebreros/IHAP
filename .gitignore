@@ -21,3 +21,17 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Local Windows print-agent credentials
+windows-agent/agent-config.json
+
+# Additional IHAP local credentials and checkpoints
+agent-config.json
+windows-agent/print-event-checkpoint.txt
+
+# Local development and test artifacts
+.bolt/
+server/node
+*.bin
+*.backup.tsx
+windows-agent/*.pdf

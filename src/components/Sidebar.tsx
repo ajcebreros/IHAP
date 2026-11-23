@@ -1,6 +1,5 @@
 import {
   LayoutDashboard,
-  Printer,
   FileText,
   BarChart3,
   Building2,
@@ -25,7 +24,6 @@ const navItems: { key: PageKey; label: string; icon: typeof LayoutDashboard }[] 
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'print-jobs', label: 'Print Jobs', icon: FileText },
   { key: 'consumption', label: 'Paper Consumption', icon: BarChart3 },
-  { key: 'printers', label: 'Printers', icon: Printer },
   { key: 'users', label: 'Users', icon: UsersIcon },
   { key: 'departments', label: 'Departments', icon: Building2 },
   { key: 'analytics', label: 'Analytics', icon: BarChart3 },

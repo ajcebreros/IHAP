@@ -2,31 +2,29 @@
 $ErrorActionPreference = "Stop"
 
 $logName = "Microsoft-Windows-PrintService/Operational"
-$collectorUrl = "http://localhost:3000/api/print-job-events"
-$agentId = $env:COMPUTERNAME
-
-$envFile = Join-Path $PSScriptRoot "..\server\.env"
+$configPath = Join-Path $PSScriptRoot "agent-config.json"
 $checkpoint = Join-Path $PSScriptRoot "print-event-checkpoint.txt"
 
-# Read the agent token locally; never print or upload it.
-if (!(Test-Path $envFile)) {
-    throw "Cannot find server\.env. Check the IHAP folder."
+# Each department laptop has its own local config. Never put the Supabase
+# service-role key in this file; only the dedicated print-agent token belongs here.
+if (!(Test-Path $configPath)) {
+    throw "Missing agent-config.json. Copy agent-config.example.json to agent-config.json and configure it."
 }
 
-$tokenLine = Get-Content $envFile |
-    Where-Object { $_ -match '^\s*AGENT_TOKEN\s*=' } |
-    Select-Object -First 1
+$config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+$collectorBaseUrl = ([string]$config.collector_url).Trim().TrimEnd('/')
+$token = ([string]$config.agent_token).Trim()
+$agentId = ([string]$config.agent_id).Trim()
 
-if (!$tokenLine) {
-    throw "AGENT_TOKEN was not found in server\.env."
+if (!$collectorBaseUrl -or !$token -or !$agentId) {
+    throw "agent-config.json must contain collector_url, agent_token, and agent_id."
 }
 
-$token = ($tokenLine -replace '^\s*AGENT_TOKEN\s*=\s*', '').Trim().Trim('"').Trim("'")
-
-if (!$token) {
-    throw "AGENT_TOKEN is empty."
+if ($collectorBaseUrl -notmatch '^https://') {
+    throw "collector_url must use HTTPS (your Render service URL)."
 }
 
+$collectorUrl = "$collectorBaseUrl/api/print-job-events"
 $headers = @{ Authorization = "Bearer $token" }
 
 # First run starts from the newest existing event to avoid importing history.
@@ -98,9 +96,24 @@ while ($true) {
             Set-Content -LiteralPath $checkpoint -Value $lastId
         }
         catch {
-            Write-Warning "Upload failed for event $($ev.RecordId). Will retry. Check the collector and token."
-            break
-        }
+    Write-Warning "Upload failed for event $($ev.RecordId)."
+    Write-Warning "Actual error: $($_.Exception.Message)"
+
+    if ($_.Exception.Response) {
+        $response = $_.Exception.Response
+        Write-Host "HTTP Status: $([int]$response.StatusCode)"
+
+        $reader = New-Object System.IO.StreamReader(
+            $response.GetResponseStream()
+        )
+        $details = $reader.ReadToEnd()
+        $reader.Close()
+
+        Write-Host "Server response: $details"
+    }
+
+    break
+}
     }
 
     Start-Sleep -Seconds 3

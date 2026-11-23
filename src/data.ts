@@ -227,6 +227,28 @@ async function loadAllPrintJobRows(userId?: string): Promise<PrintJobRow[]> {
   }
 }
 
+type CapturedPrintEventRow = {
+  windows_username: string | null;
+  pages_printed: number | null;
+  printed_at: string;
+};
+
+async function loadAllCapturedPrintEventRows(): Promise<CapturedPrintEventRow[]> {
+  const rows: CapturedPrintEventRow[] = [];
+  const pageSize = 1000;
+  for (let from = 0; ; from += pageSize) {
+    const response = await supabase
+      .from('print_job_events')
+      .select('windows_username, pages_printed, printed_at')
+      .order('printed_at', { ascending: false })
+      .range(from, from + pageSize - 1);
+    throwIfError(response.error);
+    if (!response.data) throw new Error('Supabase returned no captured print activity.');
+    rows.push(...response.data);
+    if (response.data.length < pageSize) return rows;
+  }
+}
+
 function mapPrintJob(row: PrintJobRow): PrintJob {
   return {
     id: row.id,
@@ -315,6 +337,10 @@ function sum(rows: PrintJobRow[], getValue: (row: PrintJobRow) => number): numbe
   return rows.reduce((total, row) => total + getValue(row), 0);
 }
 
+function sumCapturedEvents(rows: CapturedPrintEventRow[]): number {
+  return rows.reduce((total, row) => total + (row.pages_printed ?? 0), 0);
+}
+
 function groupJobs(
   rows: PrintJobRow[],
   getLabel: (row: PrintJobRow) => string,
@@ -401,32 +427,91 @@ function yearlyBuckets(rows: PrintJobRow[]): ChartDatum[] {
   return buckets.map(({ label, value }, index) => ({ label, value, color: chartColors[index % chartColors.length] }));
 }
 
-function departmentRows(jobs: PrintJobRow[], profiles: ProfileRow[]): Department[] {
-  const names = new Set<string>();
-  for (const profile of profiles) if (profile.department) names.add(profile.department);
-  for (const job of jobs) if (job.department) names.add(job.department);
+function departmentRows(
+  jobs: PrintJobRow[],
+  profiles: ProfileRow[],
+  capturedEvents: CapturedPrintEventRow[] = [],
+  paperCostPerSheet = 0,
+): Department[] {
+  const normalizeDepartment = (value: string) => value.trim().replace(/\s+/g, ' ');
+  const departmentNames = new Map<string, string>();
+  const departmentKey = (value: string) => normalizeDepartment(value).toLowerCase();
+
+  for (const profile of profiles) {
+    const name = normalizeDepartment(profile.department ?? '');
+    if (name) departmentNames.set(departmentKey(name), name);
+  }
+  for (const job of jobs) {
+    const name = normalizeDepartment(job.department);
+    if (name) departmentNames.set(departmentKey(name), name);
+  }
+
+  const normalizeIdentity = (value: string) => {
+    const trimmed = value.trim();
+    const afterDomain = trimmed.split(/[\\\\/@]/).filter(Boolean).pop() ?? trimmed;
+    return afterDomain.toLowerCase();
+  };
+  const capturedByDepartment = new Map<string, CapturedPrintEventRow[]>();
+  for (const event of capturedEvents) {
+    const username = normalizeIdentity(event.windows_username ?? '');
+    if (!username) continue;
+    const profile = profiles.find((candidate) =>
+      normalizeIdentity(candidate.name) === username
+      || normalizeIdentity(candidate.email ?? '') === username
+      || normalizeIdentity(candidate.email?.split('@')[0] ?? '') === username
+    );
+    const departmentName = normalizeDepartment(profile?.department ?? 'Unassigned');
+    if (departmentName) departmentNames.set(departmentKey(departmentName), departmentName);
+    const key = departmentKey(departmentName);
+    capturedByDepartment.set(key, [...(capturedByDepartment.get(key) ?? []), event]);
+  }
 
   const now = Date.now();
   const month = 30 * 24 * 60 * 60 * 1000;
-  return [...names].map((name) => {
-    const departmentJobs = jobs.filter((job) => job.department === name);
-    const recentSheets = sum(departmentJobs.filter((job) => now - Date.parse(job.created_at) <= month), (job) => job.paper_used);
-    const previousSheets = sum(departmentJobs.filter((job) => {
+  return [...departmentNames.entries()].map(([key, name]) => {
+    const departmentJobs = jobs.filter((job) => departmentKey(job.department) === key);
+    const capturedRows = capturedByDepartment.get(key) ?? [];
+    const recentCapturedSheets = sumCapturedEvents(capturedRows.filter((event) => now - Date.parse(event.printed_at) <= month));
+    const previousCapturedSheets = sumCapturedEvents(capturedRows.filter((event) => {
+      const age = now - Date.parse(event.printed_at);
+      return age > month && age <= 2 * month;
+    }));
+    const recordedRecentSheets = sum(departmentJobs.filter((job) => now - Date.parse(job.created_at) <= month), (job) => job.paper_used);
+    const recordedPreviousSheets = sum(departmentJobs.filter((job) => {
       const age = now - Date.parse(job.created_at);
       return age > month && age <= 2 * month;
     }), (job) => job.paper_used);
+    const recentSheets = recordedRecentSheets + recentCapturedSheets;
+    const previousSheets = recordedPreviousSheets + previousCapturedSheets;
     const trend = previousSheets === 0 ? (recentSheets > 0 ? 100 : 0) : ((recentSheets - previousSheets) / previousSheets) * 100;
+    const userNames = new Set<string>();
+    for (const profile of profiles) {
+      if (profile.role !== 'admin' && departmentKey(profile.department ?? '') === key) {
+        userNames.add(profile.id);
+      }
+    }
+    for (const job of departmentJobs) {
+      if (job.user_name.trim()) userNames.add(job.user_name.trim().toLowerCase());
+    }
+    for (const event of capturedRows) {
+      if (event.windows_username?.trim()) userNames.add(normalizeIdentity(event.windows_username));
+    }
     return {
       name,
-      sheetsUsed: sum(departmentJobs, (job) => job.paper_used),
-      estimatedCost: sum(departmentJobs, (job) => Number(job.cost)),
+      sheetsUsed: sum(departmentJobs, (job) => job.paper_used) + sumCapturedEvents(capturedRows),
+      estimatedCost: sum(departmentJobs, (job) => Number(job.cost)) + (sumCapturedEvents(capturedRows) * paperCostPerSheet),
       trend: Math.round(trend * 10) / 10,
-      users: profiles.filter((profile) => profile.department === name && profile.role !== 'admin').length,
+      users: userNames.size,
     };
   }).sort((a, b) => b.sheetsUsed - a.sheetsUsed);
 }
 
-function buildAnalytics(jobs: PrintJobRow[], profiles: ProfileRow[]): ConsumptionAnalytics {
+function buildAnalytics(
+  jobs: PrintJobRow[],
+  profiles: ProfileRow[],
+  capturedEvents: CapturedPrintEventRow[] = [],
+  paperCostPerSheet = 0,
+): ConsumptionAnalytics {
   const totalPaperConsumed = sum(jobs, (job) => job.paper_used);
   const monthlyUsage = sum(
     jobs.filter((job) => {
@@ -475,13 +560,91 @@ function buildAnalytics(jobs: PrintJobRow[], profiles: ProfileRow[]): Consumptio
       co2Reduction: Math.round(duplexSheetsSaved * 0.002 * 10) / 10,
       duplexPercentage: totalPrintedPages ? Math.round((duplexPages / totalPrintedPages) * 100) : 0,
     },
-    departments: departmentRows(jobs, profiles),
+    departments: departmentRows(jobs, profiles, capturedEvents, paperCostPerSheet),
   };
 }
 
 export async function loadUsers(): Promise<User[]> {
-  const [profiles, jobs] = await Promise.all([loadAllProfiles(), loadAllPrintJobRows()]);
-  return profiles.map((profile) => mapProfileToUser(profileWithUsage(profile, jobs)));
+  const [profiles, jobs, capturedEvents] = await Promise.all([
+    loadAllProfiles(),
+    loadAllPrintJobRows(),
+    loadAllCapturedPrintEventRows(),
+  ]);
+
+  const now = new Date();
+  const normalizeIdentity = (value: string) => {
+    const trimmed = value.trim();
+    const afterDomain = trimmed.split(/[\\\\/@]/).filter(Boolean).pop() ?? trimmed;
+    return afterDomain.toLowerCase();
+  };
+  const profileKeys = new Map<string, ProfileRow>();
+  for (const profile of profiles) {
+    for (const key of [profile.name, profile.email ?? '', profile.email ? profile.email.split('@')[0] : '']) {
+      const normalized = normalizeIdentity(key);
+      if (normalized) profileKeys.set(normalized, profile);
+    }
+  }
+
+  const capturedByProfile = new Map<string, CapturedPrintEventRow[]>();
+  const capturedByName = new Map<string, CapturedPrintEventRow[]>();
+  for (const event of capturedEvents) {
+    const username = event.windows_username?.trim();
+    if (!username) continue;
+    const identity = normalizeIdentity(username);
+    if (!identity) continue;
+    const profile = profileKeys.get(identity);
+    if (profile) {
+      const matched = capturedByProfile.get(profile.id) ?? [];
+      matched.push(event);
+      capturedByProfile.set(profile.id, matched);
+    } else {
+      const matched = capturedByName.get(identity) ?? [];
+      matched.push(event);
+      capturedByName.set(identity, matched);
+    }
+  }
+
+  const capturedUsers: User[] = [...capturedByName.entries()].map(([identity, events]) => {
+    const displayName = events[0].windows_username?.trim() || identity;
+    const totalSheets = sumCapturedEvents(events);
+    const monthlySheets = sumCapturedEvents(events.filter((event) => {
+      const date = new Date(event.printed_at);
+      return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+    }));
+    return {
+      id: `captured:${identity}`,
+      email: '',
+      name: displayName,
+      role: 'user',
+      department: 'Unassigned',
+      avatar: displayName.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'CU',
+      totalSheets,
+      monthlySheets,
+      officeSheets: 0,
+      personalSheets: 0,
+      status: 'active',
+      printingAllowed: true,
+    };
+  });
+
+  const profileUsers = profiles
+    .filter((profile) => profile.role !== 'admin')
+    .map((profile) => {
+      const captured = capturedByProfile.get(profile.id) ?? [];
+      const user = mapProfileToUser(profileWithUsage(profile, jobs));
+      const capturedSheets = sumCapturedEvents(captured);
+      const capturedMonthly = sumCapturedEvents(captured.filter((event) => {
+        const date = new Date(event.printed_at);
+        return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+      }));
+      return {
+        ...user,
+        totalSheets: user.totalSheets + capturedSheets,
+        monthlySheets: user.monthlySheets + capturedMonthly,
+      };
+    });
+
+  return [...profileUsers, ...capturedUsers].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function deleteUser(userId: string): Promise<void> {
@@ -558,12 +721,13 @@ export async function recordUserPrintJob(input: {
 }
 
 export async function loadApplicationData(user: User): Promise<ApplicationData> {
-  const [printerResponse, alertResponse, settingsResponse, jobRows, profiles] = await Promise.all([
+  const [printerResponse, alertResponse, settingsResponse, jobRows, profiles, capturedEvents] = await Promise.all([
     supabase.from('printers').select('*').order('name', { ascending: true }),
     supabase.from('alerts').select('*').order('created_at', { ascending: false }),
     supabase.from('app_settings').select('*').eq('id', true).maybeSingle(),
     loadAllPrintJobRows(user.role === 'admin' ? undefined : user.id),
     user.role === 'admin' ? loadAllProfiles() : Promise.resolve([] as ProfileRow[]),
+    user.role === 'admin' ? loadAllCapturedPrintEventRows() : Promise.resolve([] as CapturedPrintEventRow[]),
   ]);
 
   throwIfError(printerResponse.error);
@@ -583,7 +747,7 @@ export async function loadApplicationData(user: User): Promise<ApplicationData> 
     alerts: alertResponse.data.map(mapAlert),
     settings,
     printJobs,
-    analytics: buildAnalytics(jobRows, profiles),
+    analytics: buildAnalytics(jobRows, profiles, capturedEvents, settings.paperCostPerSheet),
   };
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Trash2, Shield, User as UserIcon, MoreVertical, Building2, TrendingUp, Users as UsersIcon } from 'lucide-react';
+import { Search, Trash2, Shield, User as UserIcon, Building2, TrendingUp, Users as UsersIcon } from 'lucide-react';
 import type { User } from '../types';
 import { deleteUser, loadUsers } from '../data';
 import { formatPeso, formatNumber } from './ui';
@@ -28,7 +28,7 @@ export function UsersPage({ paperCostPerSheet }: { paperCostPerSheet: number }) 
   }, []);
 
   const handleDeleteUser = async () => {
-    if (!userToDelete || userToDelete.role === 'admin') return;
+    if (!userToDelete || userToDelete.role === 'admin' || userToDelete.id.startsWith('captured:')) return;
 
     setIsDeleting(true);
     setUsersError('');
@@ -102,7 +102,7 @@ export function UsersPage({ paperCostPerSheet }: { paperCostPerSheet: number }) 
       </div>
 
       {usersError && <p role="alert" className="text-sm text-red-600">{usersError}</p>}
-      {isLoading && <p role="status" className="text-sm text-slate-500">Loading users from Supabase…</p>}
+      {isLoading && <p role="status" className="text-sm text-slate-500">Loading profiles and captured print activity…</p>}
 
       {/* Filters */}
       <div className="card p-4">
@@ -147,7 +147,7 @@ export function UsersPage({ paperCostPerSheet }: { paperCostPerSheet: number }) 
               ))}
               {!isLoading && !usersError && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-sm text-slate-500">No users found in Supabase.</td>
+                  <td colSpan={11} className="px-4 py-10 text-center text-sm text-slate-500">No registered or captured users found.</td>
                 </tr>
               )}
             </tbody>
@@ -190,7 +190,7 @@ function UserRow({ user, paperCostPerSheet, onDelete }: { user: User; paperCostP
           </div>
           <div>
             <p className="font-medium text-slate-800">{user.name}</p>
-            <p className="text-xs text-slate-400">{user.email}</p>
+            <p className="text-xs text-slate-400">{user.email || 'Captured Windows activity'}</p>
           </div>
         </div>
       </td>
@@ -218,18 +218,17 @@ function UserRow({ user, paperCostPerSheet, onDelete }: { user: User; paperCostP
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center justify-end gap-1">
-          <button className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition">
-            <MoreVertical size={15} />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            aria-label={`Delete ${user.name}`}
-            title={`Delete ${user.name}`}
-            className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition"
-          >
-            <Trash2 size={15} />
-          </button>
+          {!user.id.startsWith('captured:') && (
+            <button
+              type="button"
+              onClick={onDelete}
+              aria-label={`Delete ${user.name}`}
+              title={`Delete ${user.name}`}
+              className="p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-500 transition"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
         </div>
       </td>
     </tr>
